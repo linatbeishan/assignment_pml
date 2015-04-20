@@ -1,0 +1,137 @@
+PCA and Random Forest for Human Activity Recognition
+========================================================
+
+## Summary  
+In this project, we analyze the Weight Lifting Exercises Dataset[1] by the Random Forest algorithm, and compare the results of with and without PCA algorithm being pre-applied. We find that PCA can significantly reduce the time cost of the Random Forest process afterwards while retaining a favorable classification accuracy. To be specific, on the test set, with PCA, the classification Accuracy is:98.24%(95% CI: [97.78%, 98.63%]); without PCA, the classification accuracy: 99.87%(95% CI: [99.70%, 99.96%]). Moreover, their prediction results are consistent on the 20 test cases.
+
+
+## Explore and preprocess the data   
+
+```{r, echo=FALSE}
+setwd("I:/coursera/Data Science/8.Practical Machine Learning/assignment");
+```
+```{r}
+rawData   <- read.csv("pml-training.csv", header = TRUE)
+rawToPred <- read.csv("pml-testing.csv", header = TRUE)
+```
+
+After we load the dataset, we find that there are many missing values in both **rawData** and **rawToPred** data. Obviously, we cannot use these  related variables as features.  
+We remove these variables firstly.  
+```{r, echo=FALSE, warning=FALSE }
+suppressPackageStartupMessages(library(caret, quietly = TRUE))
+```
+
+```{r}
+nzv <- nearZeroVar(rawToPred)
+filteredToPred <- rawToPred[, -nzv]
+filteredData <- rawData[, -nzv]
+
+```   
+
+Secondly, there are some variables that we think cannot be taken as features, we need to remove these variables as well.  
+
+```{r}
+excluded <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp")
+filteredData <- filteredData[, !names(filteredData) %in% excluded]
+readyToPred <- filteredToPred[, !names(filteredToPred) %in% excluded]
+```  
+
+Thirdly, we find that in the **filteredData** dataset, some variables are strongly correlated.  
+```{r, fig.height=5, fig.width=6}
+M <- abs(cor(filteredData[, -54]))
+hist(M[upper.tri(M)], xlab = "Absolute correlation between features", main = "Histogram of correlations between features")
+```  
+
+Fourthly, we partition the **filteredData** dataset into **readyTrain** and **readyTest** datasets.
+```{r}
+set.seed(20150419)
+inTrain <- createDataPartition(y = filteredData$classe, p = 0.80, list = FALSE)
+readyTrain <- filteredData[inTrain, ]
+readyTest <- filteredData[-inTrain, ]
+dim(readyTrain)
+dim(readyTest)
+```
+
+Fifthly, we apply the PCA algorithm to the dataset, since it can produce uncorrelated variables and reduce time cost in the upcoming model training process. The number of components retained are 25, keeping 95% of the variance.  
+
+```{r}
+preProc <- preProcess(readyTrain[,-54], method="pca", thresh = 0.95)
+trainPC <- predict(preProc, readyTrain[,-54])
+testPC <-  predict(preProc, readyTest[,-54])
+predPC <-  predict(preProc, readyToPred[,-54])
+preProc$numComp
+```
+
+## Algorithm applied: randomForest  
+Random Forest algorithm has many advantages, e.g.: In random forests, there is no need for cross-validation or a separate test set to get an unbiased estimate of the test set error. It is estimated internally, during the run.[2] Therefore, we adopt this method to do the classification in this project. Without cross-validation, we provide the out-of-bag(oob) error estimate of the training set instead. The oob error has proven to be unbiased in many tests.[2]   
+
+```{r, echo =FALSE,warning=FALSE}
+suppressPackageStartupMessages(library(randomForest, quietly = TRUE))
+```
+
+### With PCA pre-applied:  
+
+```{r}
+set.seed(20150419)
+system.time(modPcaRF <- randomForest(trainPC, readyTrain$classe))
+```
+
+### Without PCA pre-applied:
+
+```{r}
+set.seed(20150419)
+system.time(modOrgRF <- randomForest(readyTrain[, -54], readyTrain$classe))
+```
+
+
+## Evalutaion  
+Random Forest alogrithm can handle a large number of input variables without variable deletion.[2] But with PCA pre-applied on the features, it can reduce a substantial amount of time cost while maintaining a favorable classification accuracy. Moreover, both methods achieve a consistent prediction on the 20 test cases.
+### With PCA pre-applied:  
+
+* The oob error estimate of the training set:
+```{r}
+round(modPcaRF$err.rate[modPcaRF$ntree,1], digits=4)
+```  
+
+* Perfomance on the test set:
+```{r}
+
+confusionMatrix(predict(modPcaRF, testPC), readyTest$classe)
+```  
+
+### Without PCA pre-applied:  
+
+* The oob error estimate of the training set:
+```{r}
+round(modOrgRF$err.rate[modOrgRF$ntree,1], digits=4)
+```  
+
+* Performance on the test set:
+```{r}
+confusionMatrix(predict(modOrgRF, readyTest[, -54]), readyTest$classe)
+```  
+
+### Comparison of prediction on the 20 test cases
+
+```{r}
+table(predict(modPcaRF, predPC), predict(modOrgRF, readyToPred[, -54]))
+```
+
+```{r, echo=FALSE}
+answers = predict(modPcaRF, predPC);
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+#pml_write_files(answers)
+
+```
+
+## Reference   
+[1] Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013  
+
+[2] Leo Breiman and Adele Cutler. Random Forests   http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm
+
